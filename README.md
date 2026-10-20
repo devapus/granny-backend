@@ -187,22 +187,44 @@ Client flow: `POST /media/upload-url` → `PUT` file to `upload.url` with `uploa
 
 ## Deploying to Vercel
 
-`vercel.json` runs `pnpm build` and routes every path to `api/index.js`, which imports the compiled app from `dist/`.
+Vercel treats this as an **Express** app. Entrypoint: `src/server.ts` (default export). Node `20.x`.
 
-1. Import this directory as a Vercel project (Root Directory = `memorial-backend`).
-2. Set the environment variables above (at minimum `MONGODB_URI`, `FRONTEND_ORIGIN`, `JWT_SECRET`, and for media the `R2_*` set).
-3. In MongoDB Atlas, allow Vercel egress (Atlas *Network Access*; `0.0.0.0/0` with strong credentials, or Vercel Secure Compute / static IPs).
-4. Set `COOKIE_SAMESITE=none` if the frontend is served from a different registrable domain than the API (HTTPS only),
-   otherwise keep `lax` and put both on the same site (e.g. `www.` and `api.` subdomains with `COOKIE_DOMAIN`).
-5. First deploy creates the admin from `ADMIN_BOOTSTRAP_*` on the first request; then remove those variables.
-   Run `pnpm seed` once (locally with the production URI) to pre-build indexes if you prefer not to rely on `autoIndex`.
+### 1. Project settings
 
-The app exports a plain Express handler, which Vercel's Node.js runtime invokes directly; Mongoose connections are cached
-on `globalThis` so warm invocations reuse them. Invalid configuration in production is logged clearly and every request
-returns `500 MISCONFIGURED` rather than silently running with defaults.
+- Import `devapus/granny-backend` (or this folder) as its own Vercel project.
+- Framework Preset: **Other** / Express (auto-detected from `express` + `src/server.ts`).
+- Install: `pnpm install --frozen-lockfile` (from `vercel.json`).
+- Root Directory: repository root (not a monorepo subfolder).
 
-> The Vercel entrypoint is `api/index.js` (plain JS importing the compiled `dist/`), not `.ts`, so that Vercel never
-> has to resolve TypeScript ESM `.js` specifiers; `dist/` is produced by the build step.
+### 2. Environment variables (Production + Preview)
+
+Set these in **Vercel → Project → Settings → Environment Variables** before relying on the deploy:
+
+| Variable | Notes |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | Atlas connection string |
+| `MONGODB_DB_NAME` | e.g. `house_of_memories` |
+| `FRONTEND_ORIGIN` | Exact frontend origin(s), comma-separated, e.g. `https://granny-frontend.vercel.app` (no trailing slash) |
+| `JWT_SECRET` | ≥32 chars |
+| `CSRF_SECRET` | ≥32 chars |
+| `COOKIE_SAMESITE` | `none` when frontend and API are on different sites (typical for two Vercel projects); requires HTTPS |
+| `TRUST_PROXY` | `1` |
+| `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | First boot only (≥12 char password); **remove after first successful admin login** |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Required for uploads |
+| `R2_ENDPOINT`, `R2_PUBLIC_BASE_URL` | As in `.env.example` |
+
+Missing `MONGODB_URI` / `FRONTEND_ORIGIN` / `JWT_SECRET` → responses return `500 MISCONFIGURED`.
+
+### 3. After deploy
+
+1. Atlas Network Access must allow Vercel egress (`0.0.0.0/0` is common with strong DB credentials).
+2. Open `https://<api-host>/api/v1/health` then `/api/v1/health/ready`.
+3. Point the frontend `VITE_API_BASE_URL` at `https://<api-host>/api/v1` and redeploy the frontend.
+4. Align `FRONTEND_ORIGIN` with the live frontend URL; redeploy the API if you change it.
+5. Log into `/admin/login` once so bootstrap can create the admin; then delete bootstrap env vars and redeploy.
+
+Mongoose connections are cached on `globalThis` across warm invocations.
 
 ## Testing
 

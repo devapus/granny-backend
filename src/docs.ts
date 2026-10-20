@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Router } from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
@@ -6,11 +8,23 @@ import YAML from 'yaml';
 
 let cached: Record<string, unknown> | null = null;
 
+function resolveOpenApiPath(): string {
+  const candidates = [
+    // From src/docs.ts or dist/docs.js → project root
+    fileURLToPath(new URL('../openapi.yaml', import.meta.url)),
+    // Bundled serverless layouts sometimes nest deeper
+    fileURLToPath(new URL('../../openapi.yaml', import.meta.url)),
+    join(process.cwd(), 'openapi.yaml'),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) return path;
+  }
+  throw new Error('openapi.yaml not found (include it via vercel.json includeFiles)');
+}
+
 export function loadOpenApiDocument(): Record<string, unknown> {
   if (!cached) {
-    // Resolves to <project root>/openapi.yaml from both src/ and dist/.
-    const file = new URL('../openapi.yaml', import.meta.url);
-    cached = YAML.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    cached = YAML.parse(readFileSync(resolveOpenApiPath(), 'utf8')) as Record<string, unknown>;
   }
   return cached;
 }
