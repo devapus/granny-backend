@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { createApp } from './app.js';
+import { createApp } from './createApp.js';
 import { ConfigError, loadConfig } from './config/env.js';
 import { connectDb, disconnectDb } from './db/connection.js';
 import { bootstrapAdmin } from './services/auth.js';

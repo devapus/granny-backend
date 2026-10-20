@@ -65,9 +65,10 @@ See [`.env.example`](.env.example) (contains no secrets).
 ## Architecture
 
 ```
-api/index.js            Vercel entrypoint (re-exports Express app built into dist/)
-src/index.ts            Local/long-running server (connects DB, bootstrap, graceful shutdown)
-src/app.ts              createApp(): middleware chain + routes (dependency-injectable for tests)
+src/server.ts           Vercel Express entrypoint (default export)
+src/local.ts            Local/long-running server (connects DB, bootstrap, graceful shutdown)
+src/createApp.ts        createApp(): middleware chain + routes (dependency-injectable for tests)
+src/security/helmet.ts  Helmet wrapper (CJS/ESM typing fix for Vercel)
 src/config/env.ts       Zod-validated configuration (fails fast in production)
 src/db/connection.ts    Cached Mongoose connection (reused across warm serverless invocations)
 src/models/             Tribute, Media, Administrator, SiteConfig, AuditEvent

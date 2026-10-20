@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { createApp } from '../src/app.js';
+import { createApp } from '../src/createApp.js';
 import { ConfigError, loadConfig } from '../src/config/env.js';
 import { createLogger } from '../src/utils/logger.js';
 import { FakeStorage } from './helpers/fakeStorage.js';

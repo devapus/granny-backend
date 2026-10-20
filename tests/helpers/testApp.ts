@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, inject } from 'vitest';
 import type { Express } from 'express';
-import { createApp } from '../../src/app.js';
+import { createApp } from '../../src/createApp.js';
 import { loadConfig, type AppConfig } from '../../src/config/env.js';
 import { connectDb, disconnectDb } from '../../src/db/connection.js';
 import { Administrator } from '../../src/models/Administrator.js';

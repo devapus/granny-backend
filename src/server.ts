@@ -1,10 +1,10 @@
 /**
  * Vercel Express entrypoint (zero-config).
- * Local development continues to use `pnpm dev` → `src/index.ts` (listen + bootstrap).
+ * Local development continues to use `pnpm dev` → `src/local.ts` (listen + bootstrap).
  */
 import 'dotenv/config';
 import type { Express, Request, Response } from 'express';
-import { createApp } from './app.js';
+import { createApp } from './createApp.js';
 
 let app: Express | ((req: Request, res: Response) => void);
 

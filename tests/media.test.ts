@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { createApp } from '../src/app.js';
+import { createApp } from '../src/createApp.js';
 import { Media } from '../src/models/Media.js';
 import { Tribute } from '../src/models/Tribute.js';
 import { FakeStorage, JPEG_BYTES, NOT_AN_IMAGE, PNG_BYTES } from './helpers/fakeStorage.js';

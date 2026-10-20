@@ -1,7 +1,6 @@
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
-import helmet from 'helmet';
 import type { AppConfig } from './config/env.js';
 import { loadConfig } from './config/env.js';
 import { API_PREFIX, CORRELATION_HEADER, CSRF_HEADER } from './constants.js';
@@ -13,6 +12,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { makeLimiter } from './middleware/rateLimit.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { createApiRouter } from './routes/index.js';
+import { helmet } from './security/helmet.js';
 import { R2StorageService, type StorageService } from './services/r2.js';
 import { AppError } from './utils/errors.js';
 import { createLogger, type Logger } from './utils/logger.js';

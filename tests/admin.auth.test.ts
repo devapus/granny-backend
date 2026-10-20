@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { Administrator } from '../src/models/Administrator.js';
 import { loadConfig } from '../src/config/env.js';
-import { createApp } from '../src/app.js';
+import { createApp } from '../src/createApp.js';
 import { bootstrapAdmin, resetBootstrapFlag, signSession } from '../src/services/auth.js';
 import { createLogger } from '../src/utils/logger.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, createAdmin, csrfAgent, loggedInAdmin, submitTribute, useTestApp } from './helpers/testApp.js';
