@@ -1,0 +1,7 @@
+# Single-package workspace (pnpm 12 reads settings from here, not package.json#pnpm).
+# Approve postinstall scripts so Vercel installs do not fail with ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  '@scarf/scarf': true
+  esbuild: true
+  mongodb-memory-server: true
+strictDepBuilds: true
