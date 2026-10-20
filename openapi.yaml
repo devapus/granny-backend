@@ -1,0 +1,705 @@
+openapi: 3.0.3
+info:
+  title: House of Memories API
+  version: 1.0.0
+  description: |
+    Backend API for the House of Memories digital memorial platform.
+
+    **Conventions**
+    - Success: `{ "data": ..., "meta"?: { page, limit, total, totalPages } }`
+    - Error: `{ "error": { "code", "message", "details"?, "correlationId" } }`
+    - Every response carries an `X-Correlation-Id` header (a client-supplied valid id is echoed back).
+    - Admin endpoints use an HttpOnly session cookie plus a CSRF token:
+      call `GET /csrf-token`, then send the returned token in the `X-CSRF-Token` header on every
+      admin POST/PUT/PATCH/DELETE (including login). The `hom_csrf` cookie must accompany it.
+    - Public tribute email addresses are never returned by public endpoints.
+servers:
+  - url: /api/v1
+tags:
+  - name: Meta
+  - name: Public
+  - name: Media
+  - name: Admin Auth
+  - name: Admin Tributes
+  - name: Admin Gallery
+  - name: Admin Config
+  - name: Admin Audit
+paths:
+  /health:
+    get:
+      tags: [Meta]
+      summary: Liveness check
+      responses:
+        '200':
+          description: OK
+  /health/ready:
+    get:
+      tags: [Meta]
+      summary: Readiness check (connects to the database)
+      responses:
+        '200':
+          description: Ready
+        '503':
+          $ref: '#/components/responses/Error'
+  /csrf-token:
+    get:
+      tags: [Meta]
+      summary: Issue a CSRF token (sets the hom_csrf cookie and returns the token)
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      csrfToken: { type: string }
+                      headerName: { type: string, example: x-csrf-token }
+  /public/config:
+    get:
+      tags: [Public]
+      summary: Public memorial configuration
+      responses:
+        '200':
+          description: Config (private settings are never included)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PublicConfig' }
+  /tributes:
+    get:
+      tags: [Public]
+      summary: List published tributes, ordered by category then displayOrder
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { in: query, name: category, schema: { type: string } }
+        - { in: query, name: featured, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: Page of tributes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PublicTribute' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '400':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [Public]
+      summary: Submit a tribute (always created as pending)
+      description: |
+        Idempotent by `submissionId`. Provide it either in the `Idempotency-Key` (or `X-Submission-Id`)
+        header or in the body. Repeating the same submissionId with the same content returns `200`
+        with header `Idempotent-Replay: true`; with different content returns `409`.
+        Any `status` sent by the client is ignored.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TributeSubmission' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/SubmissionReceipt' }
+        '200':
+          description: Idempotent replay of an earlier identical submission
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /tributes/{id}:
+    get:
+      tags: [Public]
+      summary: Get a published tribute
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Tribute
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PublicTribute' }
+        '404':
+          $ref: '#/components/responses/Error'
+  /gallery:
+    get:
+      tags: [Public]
+      summary: List published gallery items
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 24 } }
+        - in: query
+          name: category
+          schema: { type: string, enum: [gallery_family, gallery_featured, gallery_video] }
+        - in: query
+          name: mediaType
+          schema: { type: string, enum: [image, video] }
+      responses:
+        '200':
+          description: Gallery page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/GalleryItem' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+  /gallery/{id}:
+    get:
+      tags: [Public]
+      summary: Get a published gallery item
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Item
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/GalleryItem' }
+        '404':
+          $ref: '#/components/responses/Error'
+  /media/upload-url:
+    post:
+      tags: [Media]
+      summary: Request a presigned R2 upload URL for a tribute photo
+      description: |
+        Images only (jpeg, png, webp, avif); categories `tribute_contributor` or `tribute_grandmother`.
+        Returns 503 `STORAGE_NOT_CONFIGURED` when Cloudflare R2 is not configured.
+        Upload the bytes with the returned PUT URL and headers, then call `/media/complete`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadUrlRequest' }
+      responses:
+        '201':
+          description: URL issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/UploadUrlResponse' }
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /media/complete:
+    post:
+      tags: [Media]
+      summary: Verify an uploaded file (size + magic bytes) and mark it complete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteUploadRequest' }
+      responses:
+        '200':
+          description: Upload verified
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /admin/auth/login:
+    post:
+      tags: [Admin Auth]
+      summary: Administrator login (sets HttpOnly session cookie)
+      security: [{ csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /admin/auth/logout:
+    post:
+      tags: [Admin Auth]
+      summary: Clear the session cookie
+      security: [{ csrf: [] }]
+      responses:
+        '200':
+          description: Logged out
+  /admin/auth/me:
+    get:
+      tags: [Admin Auth]
+      summary: Current administrator
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Administrator
+        '401':
+          $ref: '#/components/responses/Error'
+  /admin/tributes:
+    get:
+      tags: [Admin Tributes]
+      summary: List tributes (includes email, moderation data)
+      security: [{ session: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, default: 20, maximum: 100 } }
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, approved, rejected, removed] }
+        - { in: query, name: category, schema: { type: string } }
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: includeDeleted, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200':
+          description: Page of tributes
+        '401':
+          $ref: '#/components/responses/Error'
+  /admin/tributes/order:
+    put:
+      tags: [Admin Tributes]
+      summary: Set display order of approved tributes
+      description: Each tribute receives its index within its own category following `orderedIds`.
+      security: [{ session: [], csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderedIds]
+              properties:
+                category: { type: string }
+                orderedIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: Updated
+        '422':
+          $ref: '#/components/responses/Error'
+  /admin/tributes/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    get:
+      tags: [Admin Tributes]
+      summary: Get tribute
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Tribute
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [Admin Tributes]
+      summary: Edit tribute content / metadata (never status)
+      security: [{ session: [], csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                tributeText: { type: string }
+                relationshipCategory: { type: string }
+                customRelationship: { type: string, nullable: true }
+                photoDisplayPermission: { type: boolean }
+                isFeatured: { type: boolean }
+                moderationNotes: { type: string }
+                displayOrder: { type: integer }
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Admin Tributes]
+      summary: Soft-delete tribute (alias of remove)
+      security: [{ session: [], csrf: [] }]
+      responses:
+        '200':
+          description: Removed
+  /admin/tributes/{id}/approve:
+    post:
+      tags: [Admin Tributes]
+      summary: Approve (publish) a pending or rejected tribute
+      security: [{ session: [], csrf: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Approved
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/tributes/{id}/reject:
+    post:
+      tags: [Admin Tributes]
+      summary: Reject a pending tribute or unpublish an approved one
+      security: [{ session: [], csrf: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Rejected
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/tributes/{id}/remove:
+    post:
+      tags: [Admin Tributes]
+      summary: Soft-delete a tribute
+      security: [{ session: [], csrf: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Removed
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/gallery:
+    get:
+      tags: [Admin Gallery]
+      summary: List gallery media
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Page of media
+    post:
+      tags: [Admin Gallery]
+      summary: Publish/curate an uploaded media item as a gallery item
+      security: [{ session: [], csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mediaId, altText]
+              properties:
+                mediaId: { type: string }
+                altText: { type: string }
+                caption: { type: string }
+                category: { type: string, enum: [gallery_family, gallery_featured, gallery_video] }
+                visibility: { type: string, enum: [public, private], default: public }
+                isFeatured: { type: boolean }
+                displayOrder: { type: integer }
+      responses:
+        '201':
+          description: Created
+  /admin/gallery/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    get:
+      tags: [Admin Gallery]
+      summary: Get gallery item
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Item
+    patch:
+      tags: [Admin Gallery]
+      summary: Update gallery item
+      security: [{ session: [], csrf: [] }]
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Admin Gallery]
+      summary: Soft-delete gallery item
+      security: [{ session: [], csrf: [] }]
+      responses:
+        '200':
+          description: Deleted
+  /admin/media/upload-url:
+    post:
+      tags: [Media]
+      summary: Admin presigned upload URL (images and videos)
+      security: [{ session: [], csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadUrlRequest' }
+      responses:
+        '201':
+          description: URL issued
+        '503':
+          $ref: '#/components/responses/Error'
+  /admin/media/complete:
+    post:
+      tags: [Media]
+      summary: Verify an admin upload
+      security: [{ session: [], csrf: [] }]
+      responses:
+        '200':
+          description: Verified
+  /admin/config:
+    get:
+      tags: [Admin Config]
+      summary: Full configuration including private settings
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Config
+    patch:
+      tags: [Admin Config]
+      summary: Update configuration
+      security: [{ session: [], csrf: [] }]
+      responses:
+        '200':
+          description: Updated
+  /admin/categories:
+    patch:
+      tags: [Admin Config]
+      summary: Replace relationship categories (rename / reorder / hide; not delete)
+      security: [{ session: [], csrf: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categories]
+              properties:
+                categories:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, name]
+                    properties:
+                      id: { type: string }
+                      name: { type: string }
+                      order: { type: integer }
+                      visible: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/audit-events:
+    get:
+      tags: [Admin Audit]
+      summary: List audit events (newest first)
+      security: [{ session: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer, maximum: 200 } }
+        - { in: query, name: action, schema: { type: string } }
+        - { in: query, name: resourceType, schema: { type: string } }
+        - { in: query, name: adminId, schema: { type: string } }
+      responses:
+        '200':
+          description: Events
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: hom_session
+    csrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            correlationId: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  path: { type: string }
+                  message: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+    TributeSubmission:
+      type: object
+      required: [fullName, email, relationshipCategory, tributeText, acknowledgment]
+      properties:
+        submissionId: { type: string, format: uuid }
+        fullName: { type: string, maxLength: 120 }
+        email: { type: string, format: email }
+        relationshipCategory: { type: string, example: grandchildren }
+        customRelationship: { type: string, maxLength: 100, description: Required when category is "other" }
+        tributeText: { type: string, minLength: 20, maxLength: 5000 }
+        contributorPhotoMediaId: { type: string, nullable: true }
+        grandmotherPhotoMediaId: { type: string, nullable: true }
+        photoDisplayPermission: { type: boolean, default: false }
+        acknowledgment: { type: boolean, enum: [true] }
+    SubmissionReceipt:
+      type: object
+      properties:
+        id: { type: string }
+        submissionId: { type: string }
+        status: { type: string, enum: [pending] }
+        createdAt: { type: string, format: date-time }
+        message: { type: string }
+    Photo:
+      type: object
+      nullable: true
+      properties:
+        id: { type: string }
+        url: { type: string, nullable: true }
+        altText: { type: string }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+    PublicTribute:
+      type: object
+      description: Allow-listed public shape. Never contains email or moderation fields.
+      properties:
+        id: { type: string }
+        fullName: { type: string }
+        relationshipCategory: { type: string }
+        relationshipLabel: { type: string }
+        customRelationship: { type: string, nullable: true }
+        tributeText: { type: string }
+        contributorPhoto: { $ref: '#/components/schemas/Photo' }
+        grandmotherPhoto: { $ref: '#/components/schemas/Photo' }
+        isFeatured: { type: boolean }
+        publishedAt: { type: string, format: date-time, nullable: true }
+    GalleryItem:
+      type: object
+      properties:
+        id: { type: string }
+        mediaType: { type: string, enum: [image, video] }
+        category: { type: string }
+        url: { type: string, nullable: true }
+        altText: { type: string }
+        caption: { type: string }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+        duration: { type: number, nullable: true }
+        isFeatured: { type: boolean }
+    PublicConfig:
+      type: object
+      properties:
+        memorialTitle: { type: string, example: House of Memories }
+        grandmotherDisplayName: { type: string }
+        portrait: { $ref: '#/components/schemas/Photo' }
+        introductoryMessage: { type: string }
+        closingMessage: { type: string }
+        tributeSubmissionsOpen: { type: boolean }
+        relationshipCategories:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              order: { type: integer }
+        gallery: { type: object }
+        featuredMemories:
+          type: array
+          items: { $ref: '#/components/schemas/PublicTribute' }
+        acknowledgments:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              message: { type: string }
+        tributeLimits:
+          type: object
+          properties:
+            minLength: { type: integer, example: 20 }
+            maxLength: { type: integer, example: 5000 }
+    UploadUrlRequest:
+      type: object
+      required: [contentType, fileSize, category]
+      properties:
+        contentType: { type: string, example: image/jpeg }
+        fileSize: { type: integer, description: Exact size in bytes }
+        category:
+          type: string
+          enum: [tribute_contributor, tribute_grandmother, gallery_family, gallery_featured, gallery_video, other]
+        altText: { type: string }
+        caption: { type: string }
+    UploadUrlResponse:
+      type: object
+      properties:
+        mediaId: { type: string }
+        upload:
+          type: object
+          properties:
+            url: { type: string }
+            method: { type: string, enum: [PUT] }
+            headers: { type: object, additionalProperties: { type: string } }
+        expiresInSeconds: { type: integer }
+        maxBytes: { type: integer }
+        completionToken: { type: string, description: Only for public uploads; required by /media/complete }
+    CompleteUploadRequest:
+      type: object
+      required: [mediaId]
+      properties:
+        mediaId: { type: string }
+        completionToken: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        duration: { type: number }
