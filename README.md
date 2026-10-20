@@ -187,7 +187,7 @@ Client flow: `POST /media/upload-url` → `PUT` file to `upload.url` with `uploa
 
 ## Deploying to Vercel
 
-Vercel treats this as an **Express** app. Entrypoint: `src/server.ts` (default export). Node `20.x`.
+Vercel treats this as an **Express** app. Entrypoint: `src/server.ts` (default export). Node `24.x`.
 
 ### 1. Project settings
 
