@@ -6,7 +6,7 @@ export const FULL_NAME_MAX_LENGTH = 120;
 export const CUSTOM_RELATIONSHIP_MAX_LENGTH = 100;
 
 export const DEFAULT_MEMORIAL_TITLE = 'House of Memories';
-export const DEFAULT_GRANDMOTHER_NAME = 'Serah Abeke Ibrahim';
+export const DEFAULT_GRANDMOTHER_NAME = 'Sarah Abeke Ibrahim';
 export const DEFAULT_INTRODUCTORY_MESSAGE =
   'Though I may no longer be here beside you, the love we shared lives on in every memory. Step inside and discover the beautiful things my family and friends remember about me.';
 export const DEFAULT_CLOSING_MESSAGE =
