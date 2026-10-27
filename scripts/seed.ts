@@ -25,9 +25,10 @@ async function main() {
   logger.info('Indexes synchronised');
 
   const site = await getSiteConfig();
-  // Keep the living memorial identity in sync with the product default when still on the placeholder.
-  if (site.grandmotherDisplayName === 'Grandmother') {
-    site.grandmotherDisplayName = 'Serah Abeke Ibrahim';
+  // Keep the living memorial identity in sync with the product default / corrected spelling.
+  const LEGACY_NAMES = new Set(['Grandmother', 'Serah Abeke Ibrahim']);
+  if (LEGACY_NAMES.has(site.grandmotherDisplayName)) {
+    site.grandmotherDisplayName = 'Sarah Abeke Ibrahim';
     await site.save();
     logger.info({ grandmotherDisplayName: site.grandmotherDisplayName }, 'Updated grandmother display name');
   }
